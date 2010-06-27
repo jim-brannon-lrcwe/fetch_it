@@ -1,0 +1,586 @@
+<?php
+// $Id$
+
+/**
+ * @file
+ * fetch_it module
+ * creates menu items and pages that contain the output of external db connections in a html table (theme_table)
+ *
+ * a custom drupal 6.x module created at Leonard Rice Engineers
+ */
+
+/**
+ * Implementation of hook_help().
+ *
+ * Throughout Drupal, hook_help() is used to display help text at the top of
+ * pages. Some other parts of Drupal pages get explanatory text from these hooks
+ * as well.
+ * 
+ * do not use this hook because I want to completely control the page content below
+ * 
+function fetch_it_help($path, $arg) {
+  switch ($path) {
+    case 'fetch_it_menu':
+      // Here is some help text for the fetch_it module pages
+      return t('The fetch_it module and fetch_it custom content types allow the creation of pages that query external databases and display the results in HTML tables.');
+    DEFAULT:
+      // Here is some help text for the fetch_it module pages
+      return t('The fetch_it module and fetch_it custom content types allow the creation of pages that query external databases and display the results in HTML tables.');
+  }
+}
+ */
+
+/**
+ * Implementation of hook_perm().
+ */
+function fetch_it_perm() {
+  return array('access fetch_it pages');
+}
+
+/**
+ * Implementation of hook_menu()
+ * 
+ * this module creates a menu item in the nav menu
+ * and then as many child menu items as there are enabled records in the fetch_it_data content type
+ * note that 
+ */
+function fetch_it_menu() {
+	//get the fetch_it settings from the fetch_it_settings content type, which should be in table [content_type_fetch_it_settings]
+	/* not sure why this isn't working - debug later
+	 * $fetch_it_root_menu_name = 'fetch_it_menu';
+	 * $fetch_it_root_menu_title = 'fetch_it';
+	 * $results=db_query('SELECT * FROM {content_type_fetch_it_settings}');
+	 * //there should be only one row, but loop through multiple just in case - this means the last non null one is used
+	 * while ($row = db_fetch_object($results)) {
+	 * 	if (strlen($row->field_fetch_it_root_menu_name_value)) {
+	 * 		$fetch_it_root_menu_name=$row->field_fetch_it_root_menu_name_value;
+	 * 	}
+	 * 	if (strlen($row->field_fetch_it_root_menu_title_value)) {
+	 * 		$fetch_it_root_menu_title=$row->field_fetch_it_root_menu_title_value;
+	 * 	}
+	 * }
+	 */
+	// create root menu item (in navigation menu)
+	// temporary - assumes there is one and only one record (node) in {content_type_fetch_it_settings} and it is complete 
+	$fetch_it_root_menu_name=db_result(db_query('SELECT field_fetch_it_root_menu_name_value FROM {content_type_fetch_it_settings}'));
+	//drupal_set_message(t('menu name'.$fetch_it_root_menu_name));
+	if (is_null($fetch_it_root_menu_name)) {
+		$fetch_it_root_menu_name='fetch_it_menu';
+	}
+	//drupal_set_message(t('menu name'.$fetch_it_root_menu_name));
+	if (!strlen(trim($fetch_it_root_menu_name))) {
+		$fetch_it_root_menu_name='fetch_it_menu';
+		//drupal_set_message(t('menu name'.$fetch_it_root_menu_name));
+	}
+	$fetch_it_root_menu_title=db_result(db_query('SELECT field_fetch_it_root_menu_title_value FROM {content_type_fetch_it_settings}'));
+	//dump($fetch_it_root_menu_title);
+	if (is_null($fetch_it_root_menu_title)) {
+		$fetch_it_root_menu_title='fetch_it';
+	}
+	if (!strlen(trim($fetch_it_root_menu_title))) {
+		$fetch_it_root_menu_title='fetch_it';
+		drupal_set_message(t('fetch_it module created a default menu title: '.$fetch_it_root_menu_title.'.  <i>(You can prevent this message by creating a fetch_it_settings content type record.)</i>'));
+	}
+	$items[$fetch_it_root_menu_name] = array(
+		'title' => $fetch_it_root_menu_title,
+		'page callback' => 'fetch_it_main_page',
+		'access arguments' => array('access fetch_it pages'),
+		'type' => MENU_NORMAL_ITEM,
+	);
+	//get the fetch_it external query settings from the fetch_it_data content type, which should be in table [content_type_fetch_it_data]
+	$results=db_query('SELECT * FROM {content_type_fetch_it_data}');
+	//process the settings data
+	$counter = 0;
+	while ($row = db_fetch_object($results)) {
+		if ($row->field_fetch_it_enabled_value and $counter<10) {
+			//create the query menu item
+			++$counter;
+			variable_set('fetch_it_data_vid_'.trim($counter),$row->vid);
+			if (is_null($row->field_fetch_it_db_query_title_value)) {
+				$menu_title='Qeury '.trim(++$counter);
+			} else {
+				$menu_title=$row->field_fetch_it_db_query_title_value;
+			}
+			$items[$fetch_it_root_menu_name.'/query'.trim($counter)] = array(
+				'title' => 	$menu_title,
+				'page callback' => 'fetch_it_query_page_'.trim($counter),
+				'access arguments' => array('access fetch_it pages'),
+				'weight' => $counter,
+			);
+		} else {
+			//nothing
+		}
+	}
+	variable_set('fetch_it_data_counter',$counter);
+	return $items;
+}
+
+/**
+ * fetch_it main page callback  
+ */
+function fetch_it_main_page() {
+	$fetch_it_main_page_body=db_result(db_query('SELECT field_fetch_it_main_page_body_value FROM {content_type_fetch_it_settings}'));
+	if (strlen(trim($fetch_it_main_page_body)) > 0) {
+		$output ='<p>'.$fetch_it_main_page_body.'</p>'; 
+	} else {
+		global $user;
+		$user_uid = (int) $user->uid;
+		$user_name = $user->name;
+		$today = date('F j, Y');
+		$output = '<p>'.t('Welcome, '.$user_name.', to the external query module (fetch_it) main page.').'</p>';
+		$results=fetch_it_menu();
+		$output .= '<p>'.t('There are '.variable_get('fetch_it_data_counter',0).' queries defined and enabled.').'</p>';
+		$output .= '<p><i>'.t('You can modify this page content by modifying the fetch_it_settings content type record. (Do NOT create more that one record/node of this type.)').'</i></p>';
+	}
+	return $output;
+}
+
+/**
+ * fetch_it query 1 page callback  
+ */
+function fetch_it_query_page_1() {
+	//get the fetch_it external query settings from the fetch_it_data content type, which should be in table [content_type_fetch_it_data]
+	$this_ndx=1;
+	$this_vid=variable_get('fetch_it_data_vid_'.trim($this_ndx),0);
+	return fetch_it_query_page($this_ndx,$this_vid);
+}
+/**
+ * fetch_it query 2 page callback  
+ */
+function fetch_it_query_page_2() {
+	//get the fetch_it external query settings from the fetch_it_data content type, which should be in table [content_type_fetch_it_data]
+	$this_ndx=2;
+	$this_vid=variable_get('fetch_it_data_vid_'.trim($this_ndx),0);
+	return fetch_it_query_page($this_ndx,$this_vid);
+	}
+/**
+ * fetch_it query 3 page callback  
+ */
+function fetch_it_query_page_3() {
+	//get the fetch_it external query settings from the fetch_it_data content type, which should be in table [content_type_fetch_it_data]
+	$this_ndx=3;
+	$this_vid=variable_get('fetch_it_data_vid_'.trim($this_ndx),0);
+	return fetch_it_query_page($this_ndx,$this_vid);
+	}
+/**
+ * fetch_it query 4 page callback  
+ */
+function fetch_it_query_page_4() {
+	//get the fetch_it external query settings from the fetch_it_data content type, which should be in table [content_type_fetch_it_data]
+	$this_ndx=4;
+	$this_vid=variable_get('fetch_it_data_vid_'.trim($this_ndx),0);
+	return fetch_it_query_page($this_ndx,$this_vid);
+	}
+/**
+ * fetch_it query 5 page callback  
+ */
+function fetch_it_query_page_5() {
+	//get the fetch_it external query settings from the fetch_it_data content type, which should be in table [content_type_fetch_it_data]
+	$this_ndx=5;
+	$this_vid=variable_get('fetch_it_data_vid_'.trim($this_ndx),0);
+	return fetch_it_query_page($this_ndx,$this_vid);
+	}
+/**
+ * fetch_it query 6 page callback  
+ */
+function fetch_it_query_page_6() {
+	//get the fetch_it external query settings from the fetch_it_data content type, which should be in table [content_type_fetch_it_data]
+	$this_ndx=6;
+	$this_vid=variable_get('fetch_it_data_vid_'.trim($this_ndx),0);
+	return fetch_it_query_page($this_ndx,$this_vid);
+	}
+/**
+ * fetch_it query 7 page callback  
+ */
+function fetch_it_query_page_7() {
+	//get the fetch_it external query settings from the fetch_it_data content type, which should be in table [content_type_fetch_it_data]
+	$this_ndx=7;
+	$this_vid=variable_get('fetch_it_data_vid_'.trim($this_ndx),0);
+	return fetch_it_query_page($this_ndx,$this_vid);
+	}
+/**
+ * fetch_it query 8 page callback  
+ */
+function fetch_it_query_page_8() {
+	//get the fetch_it external query settings from the fetch_it_data content type, which should be in table [content_type_fetch_it_data]
+	$this_ndx=8;
+	$this_vid=variable_get('fetch_it_data_vid_'.trim($this_ndx),0);
+	return fetch_it_query_page($this_ndx,$this_vid);
+	}
+/**
+ * fetch_it query 9 page callback  
+ */
+function fetch_it_query_page_9() {
+	//get the fetch_it external query settings from the fetch_it_data content type, which should be in table [content_type_fetch_it_data]
+	$this_ndx=9;
+	$this_vid=variable_get('fetch_it_data_vid_'.trim($this_ndx),0);
+	return fetch_it_query_page($this_ndx,$this_vid);
+	}
+/**
+ * fetch_it query 10 page callback  
+ */
+function fetch_it_query_page_10() {
+	//get the fetch_it external query settings from the fetch_it_data content type, which should be in table [content_type_fetch_it_data]
+	$this_ndx=10;
+	$this_vid=variable_get('fetch_it_data_vid_'.trim($this_ndx),0);
+	return fetch_it_query_page($this_ndx,$this_vid);
+	}
+
+function fetch_it_query_page($this_ndx,$this_vid) {
+	global $user;
+	$user_uid = (int) $user->uid;
+	$user_name = $user->name;
+	variable_set('fetch_it_user_uid',$user_uid);
+	variable_set('fetch_it_data_ndx',$this_ndx);
+	variable_set('fetch_it_data_vid',$this_vid);
+	if ($this_vid > 0) {
+		$results=db_query('SELECT * FROM {content_type_fetch_it_data} WHERE vid='.trim($this_vid));
+		// process the settings data
+		// note: it's probably impossible for this to return more than one record,
+		//   but it's good practice to go ahead and handle multiple records, just in case...
+		//   the following logic maintains the data in the LAST record processed  
+		while ($row = db_fetch_object($results)) {
+			$db_query_title=$row->field_fetch_it_db_query_title_value;
+			$db_query_body_1=$row->field_fetch_it_query_page_body_1_value;
+			$db_query_vid=$row->vid;
+			$db_query_nid=$row->nid;
+			$db_host=$row->field_fetch_it_db_host_value;
+			$db_type=$row->field_fetch_it_db_type_value;
+			$db_port=$row->field_fetch_it_db_port_value;
+			$db_name=$row->field_fetch_it_db_name_value;
+			$db_user=$row->field_fetch_it_db_user_value;
+			$db_password=$row->field_fetch_it_db_password_value;
+			$db_query_fields=$row->field_fetch_it_view_fields_value;
+			$db_query_view=$row->field_fetch_it_view_name_value;
+			$db_query_criteria=$row->field_fetch_it_view_criteria_value;
+			$db_query_enabled=$row->field_fetch_it_enabled_value;
+			$db_param_1_enabled=$row->field_fetch_it_param_1_enabled_value;
+			$db_param_1_title=$row->field_fetch_it_param_1_title_value;
+			$db_param_1_help=$row->field_fetch_it_param_1_help_value;
+			$db_param_1_field=$row->field_fetch_it_param_1_field_value;
+			$db_param_1_type=$row->field_fetch_it_param_1_type_value;
+			$db_param_1_table=$row->field_fetch_it_param_1_table_value;
+			$db_param_2_enabled=$row->field_fetch_it_param_2_enabled_value;
+			$db_param_2_title=$row->field_fetch_it_param_2_title_value;
+			$db_param_2_help=$row->field_fetch_it_param_2_help_value;
+			$db_param_2_field=$row->field_fetch_it_param_2_field_value;
+			$db_param_2_type=$row->field_fetch_it_param_2_type_value;
+			$db_param_2_table=$row->field_fetch_it_param_2_table_value;
+			$db_param_3_enabled=$row->field_fetch_it_param_3_enabled_value;
+			$db_param_3_title=$row->field_fetch_it_param_3_title_value;
+			$db_param_3_help=$row->field_fetch_it_param_3_help_value;
+			$db_param_3_field=$row->field_fetch_it_param_3_field_value;
+			$db_param_3_type=$row->field_fetch_it_param_3_type_value;
+			$db_param_3_table=$row->field_fetch_it_param_3_table_value;
+		}
+		$db_query='SELECT '.trim($db_query_fields).' FROM '.trim($db_query_view);
+		if (strlen(trim($db_query_criteria)) > 0) {
+			$db_query .= ' WHERE '.trim($db_query_criteria);
+		}
+		if (strlen(trim($db_query_body_1)) > 0) {
+			$output=$db_query_body_1;
+		} else {
+			$output='<p>External query name: <i>'.$db_query_title.'</i></p>';
+			$output.='<p>Database connection parameters:</p>';	
+			$output.='<p>db host: <i>'.$db_host.'</i></p>';
+			$output.='<p>db type: <i>'.$db_type.'</i></p>';
+			$output.='<p>db port: <i>'.$db_port.'</i></p>';
+			$output.='<p>db user name: <i>'.$db_name.'</i></p>';
+			$output.='<p>db user password: <i>'.$db_password.'</i></p>';
+			$output.='<p>Database query parameters:</p>';	
+			$output.='<p>db query fields: <i>'.$db_query_fields.'</i></p>';
+			$output.='<p>db query table/view: <i>'.$db_query_view.'</i></p>';
+			$output.='<p>db query criteria: <i>'.$db_query_criteria.'</i></p>';
+			$output.='<p>Database query:</p>';	
+			$output.='<p>SQL code created:</p>';
+			$output.='<p><i>'.$db_query.'</i></p>';
+			$output.='<p>parameter 1 enabled: <i>'.$db_param_1_enabled.'</i></p>';
+			$output.='<p>parameter 1 title: <i>'.$db_param_1_title.'</i></p>';
+			$output.='<p>parameter 1 help: <i>'.$db_param_1_help.'</i></p>';
+			$output.='<p>parameter 1 field: <i>'.$db_param_1_field.'</i></p>';
+			$output.='<p>parameter 1 field type: <i>'.$db_param_1_type.'</i></p>';
+			$output.='<p>parameter 1 table: <i>'.$db_param_1_table.'</i></p>';
+			$output.='<p>parameter 2 enabled: <i>'.$db_param_2_enabled.'</i></p>';
+			$output.='<p>parameter 2 title: <i>'.$db_param_2_title.'</i></p>';
+			$output.='<p>parameter 2 help: <i>'.$db_param_2_help.'</i></p>';
+			$output.='<p>parameter 2 field: <i>'.$db_param_2_field.'</i></p>';
+			$output.='<p>parameter 2 field type: <i>'.$db_param_2_type.'</i></p>';
+			$output.='<p>parameter 2 table: <i>'.$db_param_2_table.'</i></p>';
+			$output.='<p>parameter 3 enabled: <i>'.$db_param_3_enabled.'</i></p>';
+			$output.='<p>parameter 3 title: <i>'.$db_param_3_title.'</i></p>';
+			$output.='<p>parameter 3 help: <i>'.$db_param_3_help.'</i></p>';
+			$output.='<p>parameter 3 field: <i>'.$db_param_3_field.'</i></p>';
+			$output.='<p>parameter 3 field type: <i>'.$db_param_3_type.'</i></p>';
+			$output.='<p>parameter 3 table: <i>'.$db_param_3_table.'</i></p>';
+			$output.='<p>___________________________________________________________</p>';
+			$output.='<p>Database query output:</p>';	
+		}
+		if ($db_param_1_enabled or $db_param_2_enabled or $db_param_3_enabled) {
+			// output the little form with the text box and submit button
+			$output .= drupal_get_form('fetch_it_form_input');
+		}
+		if ($db_query_enabled) {
+			switch (trim($db_type)) {
+				case 'PostgreSQL':
+					// get the locally saved parameter value
+					global $user;
+					$user_uid = (int) $user->uid;
+					$user_name = $user->name;
+					$db_string = 'host='.$db_host;
+					$db_string .= ' port='.$db_port;
+					$db_string .= ' user='.$db_user;
+					$db_string .= ' password='.$db_password;
+					$db_string .= ' dbname='.$db_name;
+					$db_handle = pg_connect($db_string) or drupal_set_message(t('Could not connect to LRE pg server'));
+					if ($db_param_1_enabled) {
+						// push the latest collected parameter out to the remote database
+						$last_submitted_parameter=db_result(db_query('SELECT parameter_value FROM {fetch_it_parameters} where uid='.$user_uid.' AND vid='.$this_vid));
+						//$db_query_param_update = 'DELETE FROM '.$db_param_1_table.' WHERE '.$db_param_1_uid.'='.$user_uid;
+						$db_query_param_update = 'DELETE FROM '.$db_param_1_table;
+						$results = pg_exec($db_handle, $db_query_param_update);
+						if (strlen(trim($last_submitted_parameter))) {
+							switch ($db_param_1_type) {
+								case 'text':
+									//$db_query_param_update = 'INSERT INTO '.$db_param_1_table.' ('.$db_param_1_uid.', '.$db_param_1_field.') VALUES ('.$user_uid.','.$last_submitted_year.')';
+									$db_query_param_update = "INSERT INTO ".$db_param_1_table." (".$db_param_1_field.") VALUES ('".$last_submitted_parameter."')";
+									$results = pg_exec($db_handle, $db_query_param_update);
+									break;
+								case 'integer':
+									//$db_query_param_update = 'INSERT INTO '.$db_param_1_table.' ('.$db_param_1_uid.', '.$db_param_1_field.') VALUES ('.$user_uid.','.$last_submitted_year.')';
+									$db_query_param_update = 'INSERT INTO '.$db_param_1_table.' ('.$db_param_1_field.') VALUES ('.(int) $last_submitted_parameter.')';
+									$results = pg_exec($db_handle, $db_query_param_update);
+									break;
+								case 'real':
+									//$db_query_param_update = 'INSERT INTO '.$db_param_1_table.' ('.$db_param_1_uid.', '.$db_param_1_field.') VALUES ('.$user_uid.','.$last_submitted_year.')';
+									$db_query_param_update = 'INSERT INTO '.$db_param_1_table.' ('.$db_param_1_field.') VALUES ('.(real) $last_submitted_parameter.')';
+									$results = pg_exec($db_handle, $db_query_param_update);
+									break;
+								case 'date':
+									//$db_query_param_update = 'INSERT INTO '.$db_param_1_table.' ('.$db_param_1_uid.', '.$db_param_1_field.') VALUES ('.$user_uid.','.$last_submitted_year.')';
+									$db_query_param_update = "INSERT INTO ".$db_param_1_table." (".$db_param_1_field.") VALUES (DATE '".$last_submitted_parameter."')";
+									$results = pg_exec($db_handle, $db_query_param_update);
+									break;
+								DEFAULT:
+									//$db_query_param_update = 'INSERT INTO '.$db_param_1_table.' ('.$db_param_1_uid.', '.$db_param_1_field.') VALUES ('.$user_uid.','.$last_submitted_year.')';
+									$db_query_param_update = "INSERT INTO ".$db_param_1_table." (".$db_param_1_field.") VALUES ('".$last_submitted_parameter."')";
+									$results = pg_exec($db_handle, $db_query_param_update);
+							}
+							
+						} 
+					}
+					// run the select query to get the view output 
+					$results = pg_exec($db_handle, $db_query);
+					$output.=pg_object_to_table($results);
+					//$rowcount = 0;
+					//while($row = pg_fetch_object($results)) {
+					//while($row = pg_fetch_array($results)) {
+						//++$rowcount;
+						//$rows[] = array(
+						//	array('data' => $row['decree_index']),
+						//	array('data' => $row['decree_name']),
+						//);
+						//$output.='<p>'.$row[0].'</p>';
+					//}
+					//$output.='<p><b>'.t('The table has ').$rowcount.t(' rows!').'</b></p>';
+					//$header=array('decree_index', 'decree_name');
+					//$table_attributes = array('id' => 'fetch_it_table', 'align' => 'left');
+					//$output .= theme('table', $header, $rows, $table_attributes);
+					break;
+				default:
+					$output.='<p><b>Unsupported database type! Contact module developer.</b></p>';	
+			}
+		} else {
+			$output.='<p><b>Database query is disabled!</b></p>';	
+		}
+		
+	} else {
+		$output.='<p>Could not display query: Illegal value of system assigned content index, vid.  vid should be >0.  vid='.$this_vid.'</p>';
+		$output.='<p>Please contact the module developer.</p>';
+	}
+	return $output;
+}
+
+/**
+ * define the form
+ */
+function fetch_it_form_input() {
+	$this_ndx=variable_get('fetch_it_data_ndx',0);
+	$this_vid=variable_get('fetch_it_data_vid',0);
+	$user_uid=variable_get('fetch_it_user_uid',0);
+	if ($this_vid) {
+		$results=db_query('SELECT * FROM {content_type_fetch_it_data} WHERE vid='.trim($this_vid));
+		while ($row = db_fetch_object($results)) {
+			$db_query_title=$row->field_fetch_it_db_query_title_value;
+			$db_query_body_1=$row->field_fetch_it_query_page_body_1_value;
+			$db_query_vid=$row->vid;
+			$db_query_nid=$row->nid;
+			$db_host=$row->field_fetch_it_db_host_value;
+			$db_type=$row->field_fetch_it_db_type_value;
+			$db_port=$row->field_fetch_it_db_port_value;
+			$db_name=$row->field_fetch_it_db_name_value;
+			$db_user=$row->field_fetch_it_db_user_value;
+			$db_password=$row->field_fetch_it_db_password_value;
+			$db_query_fields=$row->field_fetch_it_view_fields_value;
+			$db_query_view=$row->field_fetch_it_view_name_value;
+			$db_query_criteria=$row->field_fetch_it_view_criteria_value;
+			$db_query_enabled=$row->field_fetch_it_enabled_value;
+			$db_param_1_enabled=$row->field_fetch_it_param_1_enabled_value;
+			$db_param_1_title=$row->field_fetch_it_param_1_title_value;
+			$db_param_1_help=$row->field_fetch_it_param_1_help_value;
+			$db_param_1_field=$row->field_fetch_it_param_1_field_value;
+			$db_param_1_type=$row->field_fetch_it_param_1_type_value;
+			$db_param_1_table=$row->field_fetch_it_param_1_table_value;
+			$db_param_2_enabled=$row->field_fetch_it_param_2_enabled_value;
+			$db_param_2_title=$row->field_fetch_it_param_2_title_value;
+			$db_param_2_help=$row->field_fetch_it_param_2_help_value;
+			$db_param_2_field=$row->field_fetch_it_param_2_field_value;
+			$db_param_2_type=$row->field_fetch_it_param_2_type_value;
+			$db_param_2_table=$row->field_fetch_it_param_2_table_value;
+			$db_param_3_enabled=$row->field_fetch_it_param_3_enabled_value;
+			$db_param_3_title=$row->field_fetch_it_param_3_title_value;
+			$db_param_3_help=$row->field_fetch_it_param_3_help_value;
+			$db_param_3_field=$row->field_fetch_it_param_3_field_value;
+			$db_param_3_type=$row->field_fetch_it_param_3_type_value;
+			$db_param_3_table=$row->field_fetch_it_param_3_table_value;
+		}
+		$db_param_1_title=variable_get('fetch_it_param_1_title','fetch_it external database query '.$this_ndx.' parameter 1');
+		$db_param_1_help=variable_get('fetch_it_param_1_help','enter the parameter value to use to filter the external database view results');
+		// get the most recently submitted values to use in the query
+		$last_submitted_parameter=db_result(db_query('SELECT parameter_value FROM {fetch_it_parameters} where uid='.$user_uid.' AND vid='.$this_vid));
+		$form['param_1'] = array(
+    		'#title' => t($db_param_1_title),
+    		'#type' => 'textfield',
+    		'#default_value' => $last_submitted_parameter,
+    		'#description' => t($db_param_1_help),
+		);
+		$form['submit_button'] = array(
+			'#type' => 'submit',
+			'#value' => t('Run Query'),
+		);
+	}
+	return $form;
+}
+
+/**
+ * validate the form
+ * check entered data - happens after submit
+ */
+function fetch_it_form_input_validate($form, &$form_state) {
+}
+
+/**
+ * handle post validation form submission
+ * actions you want to happen after submit and passed validation
+ */
+function fetch_it_form_input_submit($form, $form_state) {
+	$this_ndx=variable_get('fetch_it_data_ndx',0);
+	$this_vid=variable_get('fetch_it_data_vid',0);
+	$user_uid=variable_get('fetch_it_user_uid',0);
+	db_query("DELETE FROM {fetch_it_parameters} where uid=".$user_uid." AND vid=".$this_vid);
+	if (strlen(trim($form_state['values']['param_1']))) {
+		db_query("INSERT INTO {fetch_it_parameters} (uid,vid,parameter_value) VALUES (%d,%d,'%s')", $user_uid, $this_vid, $form_state['values']['param_1']);
+	} else {
+		db_query("INSERT INTO {fetch_it_parameters} (uid,vid,parameter_value) VALUES (%d,%d,'')", $user_uid, $this_vid);
+	}
+}
+
+
+function pg_object_to_table($pg_object) {
+	// create an array where each item will be a db table row object converted to an array
+	$table_row_arrays = array();
+	// load the array with with the table row arrays
+	while ($row = pg_fetch_array($pg_object)) {
+		//return dump($row);
+		$table_row_arrays[] = $row;
+	}
+	//return dump($table_row_arrays);
+	//count the rows
+	if (count($table_row_arrays)) {
+		// init the output variable
+		$output = "";
+	} else {
+		// return a message that the tale was empty
+		$output = "Empty table.";
+		return $output;   
+	}
+	// create an array, rows, to hold row data arrays
+	$rows = array();
+	// get the field names
+	// but there are "two" many
+	$too_many_field_names = array_keys($table_row_arrays[0]);
+	//return dump($too_many_field_names);
+	$field_names=array();
+	for ($i = 1; $i < count($too_many_field_names); $i += 2) {
+		$field_names[]=$too_many_field_names[$i];
+	}
+	//return dump($field_names);
+	// loop through each row, splitting it into
+	foreach ($table_row_arrays as $key => $data) {
+		// now create an array of the values on this row for the field names
+		$row = array();
+		foreach ($field_names as $field_name) {
+			$row[] = array(
+			'data' => $data[$field_name],
+			'class' => strtolower(str_replace(' ', '-', $field_name)),
+			);
+		}
+		//now save this array of data in $row as an item in the $rows array
+		$rows[] = $row;
+	}
+  // create headers from field names
+  $header = array();
+  foreach ($field_names as $field_name) {
+    $header[] = array(
+      'data' => $field_name,
+      'class' => strtolower(str_replace(' ', '-', $field_name)),
+    );
+  }
+  // create table
+  $output .= theme('table', $header, $rows);
+  return $output;
+}
+
+function dump($value,$level=0)
+{
+  if ($level==-1)
+  {
+    $trans[' ']='&there4;';
+    $trans["\t"]='&rArr;';
+    $trans["\n"]='&para;;';
+    $trans["\r"]='&lArr;';
+    $trans["\0"]='&oplus;';
+    return strtr(htmlspecialchars($value),$trans);
+  }
+  if ($level==0) echo '<pre>';
+  $type= gettype($value);
+  echo $type;
+  if ($type=='string')
+  {
+    echo '('.strlen($value).')';
+    $value= dump($value,-1);
+  }
+  elseif ($type=='boolean') $value= ($value?'true':'false');
+  elseif ($type=='object')
+  {
+    $props= get_class_vars(get_class($value));
+    echo '('.count($props).') <u>'.get_class($value).'</u>';
+    foreach($props as $key=>$val)
+    {
+      echo "\n".str_repeat("\t",$level+1).$key.' => ';
+      dump($value->$key,$level+1);
+    }
+    $value= '';
+  }
+  elseif ($type=='array')
+  {
+    echo '('.count($value).')';
+    foreach($value as $key=>$val)
+    {
+      echo "\n".str_repeat("\t",$level+1).dump($key,-1).' => ';
+      dump($val,$level+1);
+    }
+    $value= '';
+  }
+  echo " <b>$value</b>";
+  if ($level==0) echo '</pre>';
+}

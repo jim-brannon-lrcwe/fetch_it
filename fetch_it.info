@@ -1,0 +1,5 @@
+; $Id$
+name = fetch_it
+description = module to link to external databases and "fetch" data from tables and views.  fetching is currently collecting it into a html table (theme_table) or (eventually in later versions) collecting into a local table (over written each time)   
+core = 6.x
+package = Leonard Rice Engineers Custom Drupal Modules
